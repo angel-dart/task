@@ -1,13 +1,8 @@
-# task
+import 'dart:async';
+import 'package:angel_framework/angel_framework.dart';
+import 'package:angel_task/angel_task.dart';
+import 'package:angel_task/server.dart';
 
-[![version 1.0.0](https://img.shields.io/badge/pub-1.0.0-brightgreen.svg)](https://pub.dartlang.org/packages/angel_task)
-
-Support for running and scheduling asynchronous tasks within Angel.
-
-*Coming soon*: Trigger tasks within route handlers. This will require communication between isolates, 
-and will be present by the next release!
-
-```dart
 main() async {
   var app = await createApp();
   var scheduler = new AngelTaskScheduler(app);
@@ -30,4 +25,16 @@ main() async {
 
   await scheduler.start();
 }
-```
+
+Future<Angel> createApp() async {
+  var app = new Angel();
+  app.container.singleton(new Todo(text: 'Clean your room!'));
+  return app;
+}
+
+class Todo {
+  final String text;
+  final bool completed;
+
+  Todo({this.text, this.completed: false});
+}

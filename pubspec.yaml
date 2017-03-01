@@ -1,5 +1,5 @@
 name: angel_task
-version: 0.0.0
+version: 1.0.0
 description: Support for running asynchronous jobs within Angel. Ideal for large applications.
 author: Tobe O <thosakwe@gmail.com>
 environment:

@@ -4,3 +4,5 @@ export 'src/protocol/message.dart';
 export 'src/protocol/protocol.dart';
 export 'src/protocol/remote.dart';
 export 'src/protocol/server.dart';
+export 'src/scheduler.dart';
+export 'src/task.dart';
