@@ -17,7 +17,7 @@ main() async {
   foo = scheduler.seconds(1, () {
     print('Printing ${++i} time(s)!');
 
-    if (i >= 3 && false) {
+    if (i >= 3) {
       print('Cancelling foo task...');
       foo.cancel();
     }
