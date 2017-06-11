@@ -8,4 +8,7 @@ abstract class TaskResult {
 
   /// A stack trace of the error that caused this task to fail.
   String get stack;
+
+  /// The result of a successful task.
+  get value;
 }

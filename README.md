@@ -1,15 +1,28 @@
 # task
-
 [![version 1.0.0](https://img.shields.io/badge/pub-1.0.0-brightgreen.svg)](https://pub.dartlang.org/packages/angel_task)
 
 Support for running and scheduling asynchronous tasks within Angel.
-Parameters can be injected into scheduled tasks with the same dependency
-injection system used by Angel.
+Parameters can be injected into scheduled tasks with the same
+[dependency injection](https://github.com/angel-dart/angel/wiki/Dependency-Injection)
+system used by Angel.
 
+* [Installation](#installation)
+* [Usage](#usage)
+  * [Multithreading](#multithreading)
 
+# Installation
+In your `pubspec.yaml` file:
+
+```yaml
+  dependencies:
+    angel_framework: ^1.0.0
+    angel_task: ^1.0.0
+```
+
+# Usage
 ```dart
 main() async {
-  var app = await createApp();
+  var app = await createServer();
   var scheduler = new AngelTaskScheduler(app);
 
   // Run a one-off task, with an optional delay.
@@ -20,7 +33,7 @@ main() async {
   Task foo;
   int i = 0;
 
-  // Periodically run functionality, complete with dependency injection...
+  // Periodically run functionality
   foo = scheduler.seconds(1, () {
     print('Printing ${++i} time(s)!');
 
@@ -32,7 +45,13 @@ main() async {
   
   // Named tasks!
   var greetTask = scheduler.minutes(3, (String message) => print(message), name: 'greet');
+  
+  // You can still access services, etc., and thus manipulate databases from tasks.
+  scheduler.once(() {
+    app.service('foo').create({'foo': 'bar'});
+  });
 
+  // If you never start the scheduler, no tasks will ever run.
   await scheduler.start();
   
   // Run a named task
@@ -40,35 +59,111 @@ main() async {
 }
 ```
 
-# TaskClient
-Use the `TaskClient` API to invoke tasks in the main isolate within child nodes.
+Make sure to start the scheduler. Otherwise, your tasks will never run:
 
 ```dart
-main() {
+main() async {
+  // ...
+  await scheduler.start();
+}
+```
+
+You can also listen to a `Stream` of a task's results:
+
+```dart
+main() async {
+  // ...
+  var task = scheduler.minutes(3, fibonacci, args: [13]);
+  var fib13 = await task.results.first;
+}
+```
+
+## Multithreading
+Angel's task engine also supports communication over isolates, which allows you to run all
+tasks in a separate thread from the server, without losing performance.
+
+For example, if your processor has 4 cores, you might spawn 4 total isolates:
+  * 3 child isolates, all running the server
+  * 1 master isolate, which runs the task engine
   
+The master isolate can be dedicated to just running tasks, with no HTTP responsibility.
+The child isolates only have to worry about serving your application to the Web. 
+
+The `AngelTaskScheduler` has a `receivePort` that it uses to communicate with clients.
+
+To access the scheduler as a client, instantiate a `TaskClient`. The constructor accepts a single
+`SendPort`, which in this case comes from the scheduler.
+
+**IMPORTANT:** If you *want* to send the return value of task functions to clients, then set
+`sendReturnValues` to `true` in the `AngelTaskScheduler` constructor. If so, then the results of
+your task callbacks will have to be primitive Dart values, serializable over SendPorts.
+
+Use this as a mechanism to query the state of the master isolate. You might find that you won't need it,
+though.
+
+```dart
+main() async {
+  var nInstances = Platform.numberOfProcessors - 1;
+  
+  // This instance won't actually serve HTTP, we just use it for DI.
+  var app = await createServer();
+  var scheduler = new AngelTaskScheduler(app);
+  
+  // Start listening, running tasks, etc.
+  await scheduler.start();
+  
+  for (int i = 0; i < nInstances; i++) {
+    // Spawn child nodes now. Make sure to send the scheduler's SendPort.
+    Isolate.spawn(isolateMain, [i, scheduler.receivePort.sendPort]);
+  }
 }
 
-void isolateMain(SendPort master) {
-  var app = new Angel();
-  var client = new TaskClient(master);
+/// The code that runs in the child nodes, i.e., the ones running the application.
+void isolateMain(List args) {
+  int id = args[0];
+  SendPort masterPort = args[1];
+  var app = new Angel.custom(startShared);
   
-  master.connect().then((_) async {
-    var result = await client.run('greet', args: ['Hello, world!']);
+  // Hook up a task client, then start the server.
+  app.configure(taskClientPlugin(masterPort)).then((_) async {
+    var server = await app.startServer(InternetAddress.ANY_IP_V4, 3000);
+    print('Instance #$id listening at http://${server.address.address}:${server.port}');
+  });
+}
+
+/// A simple plug-in that connects a server instance to the master task scheduler.
+AngelConfigurer taskClientPlugin(SendPort masterPort) {
+  return (Angel app) async {
+    var client = new TaskClient(masterPort);
+    await master.connect(); // Await a connection...
+    await master.connect(timeout: new Duration(seconds: 30)); // Optional timeout.
     
-    // Handle errors...
-    if (!result.successful) {
-      print(result.error);
-      print(result.stack);
-    }
-  });
-  
-  // You can inject the client as a singleton
-  app.container.singleton(client);
-  
-  app.get('/async_task', (TaskClient client) async {
-    var asyncGreet = await client.run('greet', args: ['Async!!!']);
-    return {'ok': asyncGreet.successful};
-  });
+    // If we inject the TaskClient as a singleton, we can access it in routes.
+    app.container.singleton(client);
+    
+    // We can dispatch tasks, without waiting for the result.
+    app.get('/dispatch', (TaskClient client) {
+      client.run('foo', args: ['bar']);
+    });
+    
+    // We can also await the results of tasks.
+    app.get('/fibonacci/:number([0-9]+)', (TaskClient client, String number) async {
+      var n = int.parse(number);
+      var taskResult = await client.run('fibonacci', args: [n]);
+      
+      if (!taskResult.successful) {
+        // Access error and stack trace on failure
+        print(taskResult.error);
+        print(taskResult.stack);
+        throw new AngelHttpException.notProcessable();
+      }
+      
+      // If `sendReturnValues` is `true` in our `AngelTaskScheduler`, then we can
+      // also access the value returned from the task function.
+      var computation = task.value;
+      return {'value': computation};
+    });
+  };
 }
 ```
 

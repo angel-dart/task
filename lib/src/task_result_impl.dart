@@ -7,12 +7,20 @@ class TaskResultImpl implements TaskResult {
   @override
   final String error, stack;
 
-  TaskResultImpl(this.successful, {this.error, this.stack});
+  @override
+  final value;
+
+  TaskResultImpl(this.successful, {this.error, this.stack, this.value});
 
   static TaskResultImpl parse(Map map) => new TaskResultImpl(map['successful'],
-      error: map['error'], stack: map['stack']);
+      error: map['error'], stack: map['stack'], value: map['value']);
 
   Map<String, dynamic> toJson() {
-    return {'successful': successful, 'error': error, 'stack': stack};
+    return {
+      'successful': successful,
+      'error': error,
+      'stack': stack,
+      'value': value
+    };
   }
 }

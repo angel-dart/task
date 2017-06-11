@@ -14,9 +14,10 @@ class AngelTaskScheduler extends TaskScheduler {
   final List<_TaskImpl> _tasks = [];
   final Uuid _uuid = new Uuid();
   final Angel app;
+  final bool sendReturnValues;
   final ReceivePort receivePort = new ReceivePort();
 
-  AngelTaskScheduler(this.app);
+  AngelTaskScheduler(this.app, {this.sendReturnValues: false});
 
   @override
   Task schedule(Duration duration, Function callback, {String name}) {
@@ -80,10 +81,12 @@ class AngelTaskScheduler extends TaskScheduler {
               message.args,
               message.named?.keys?.fold<Map<Symbol, dynamic>>({}, (out, k) {
                 return out..[new Symbol(k)] = message.named[k];
-              })).then((_) {
+              })).then((result) {
             client.send(new Message(MessageType.TASK_COMPLETED,
                 messageId: message.messageId,
-                taskResult: new TaskResultImpl(true).toJson()));
+                taskResult: new TaskResultImpl(true,
+                        value: sendReturnValues == true ? result : null)
+                    .toJson()));
           }).catchError((e, st) {
             client.send(new Message(MessageType.TASK_COMPLETED,
                 messageId: message.messageId,
