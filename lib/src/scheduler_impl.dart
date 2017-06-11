@@ -36,8 +36,9 @@ class AngelTaskScheduler extends TaskScheduler {
 
   @override
   Task schedule(Duration duration, Function callback, {String name}) {
-    var task =
-        new _TaskImpl(app, duration, callback, preInject(callback), name: name);
+    var task = new _TaskImpl(
+        app, duration, callback, callback == null ? null : preInject(callback),
+        name: name);
     _tasks.add(task);
     if (_started) task.run();
     return task;
@@ -56,7 +57,8 @@ class AngelTaskScheduler extends TaskScheduler {
 
   @override
   Task once(Function callback, [Duration delay]) {
-    var task = new _OnceTaskImpl(app, delay, callback, preInject(callback));
+    var task = new _OnceTaskImpl(
+        app, delay, callback, callback == null ? null : preInject(callback));
     _tasks.add(task);
     if (_started) task.run();
     return task;
@@ -164,7 +166,9 @@ class AngelTaskScheduler extends TaskScheduler {
 
   @override
   void define(String name, Function callback) {
-    _tasks.add(new _OnceTaskImpl(app, null, callback, preInject(callback)));
+    _tasks.add(new _TaskImpl(
+        app, null, callback, callback == null ? null : preInject(callback),
+        name: name));
   }
 }
 
@@ -197,7 +201,7 @@ class _TaskImpl implements Task {
 
   @override
   Future cancel() async {
-    _timer.cancel();
+    _timer?.cancel();
     _results.close();
     _closed = true;
   }
@@ -241,6 +245,8 @@ _run(Function callback, InjectionRequest injection, Angel app,
           'Cannot inject \'$requirement\'. The task scheduler only supports parameters with type annotations.');
     }
   }
+
+  if (injection == null) return null;
 
   injection.required.skip(args.length).forEach(inject);
   injection.named.forEach((k, v) {
