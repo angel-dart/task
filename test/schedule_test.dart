@@ -1,5 +1,6 @@
 import 'package:angel_framework/angel_framework.dart';
 import 'package:angel_task/angel_task.dart';
+import 'package:mock_request/mock_request.dart';
 import 'package:test/test.dart';
 
 main() {
@@ -63,4 +64,64 @@ main() {
     expect(scheduler.once(null).toString(), isNot('foo'));
     expect(scheduler.seconds(2, null, name: 'foo').toString(), 'Task: foo');
   });
+
+  group('di', () {
+    test('inject singleton', () async {
+      app.inject('fooDuration', new Duration(seconds: 2));
+      var task =
+          scheduler.once((Duration fooDuration) => fooDuration.inMilliseconds);
+      expect(await task.results.first, 2000);
+    });
+
+    test('require type', () async {
+      app.container.singleton(await RequestContext.from(
+          new MockHttpRequest('GET', new Uri(queryParameters: {'foo': 'bar'})),
+          app));
+      var task = scheduler.once((RequestContext req) => req.query);
+      expect(await task.results.first, {'foo': 'bar'});
+    });
+
+    test('container', () async {
+      var task = scheduler.once((Foo foo) => foo.n);
+      expect(await task.results.first, Foo.DEFAULT);
+    });
+  });
+
+  test('run waiting tasks on start', () async {
+    var app = new Angel();
+    var scheduler = new AngelTaskScheduler(app);
+    var task = scheduler.once(() => 34);
+    await scheduler.start();
+    expect(await task.results.first, 34);
+    await scheduler.close();
+    await app.close();
+  });
+
+  group('exceptions', () {
+    test('unknown task', () {
+      expect(() => scheduler.run('!!!'), throwsUnsupportedError);
+    });
+
+    test('restart', () async {
+      var app = new Angel();
+      var scheduler = new AngelTaskScheduler(app);
+      await scheduler.start();
+
+      try {
+        await scheduler.start();
+        throw new Exception('Should not be able to restart!!!');
+      } on StateError {
+        // Success!
+      } finally {
+        await app.close();
+        await scheduler.close();
+      }
+    });
+  });
+}
+
+class Foo {
+  static const int DEFAULT = 3;
+  final int n;
+  Foo({this.n = DEFAULT});
 }

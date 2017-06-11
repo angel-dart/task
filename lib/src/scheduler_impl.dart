@@ -74,6 +74,9 @@ class AngelTaskScheduler extends TaskScheduler {
 
   @override
   Future start() {
+    if (_started || _closed)
+      throw new StateError('Cannot restart an AngelTaskScheduler.');
+
     receivePort.listen((data) {
       handleMessage(data, (message) {
         // Only send the message if there is an associated client.
@@ -189,10 +192,19 @@ class _TaskImpl implements Task {
   Stream get results => _results.stream;
 
   Future run([List args, Map<Symbol, dynamic> named]) async {
-    if (_closed) throw new StateError('Cannot run a cancelled task.');
-    var r = await _run(callback, injection, app, args, named);
-    _results.add(r);
-    return r;
+    if (_closed) {
+      _results.addError(new StateError('Cannot run a cancelled task.'));
+      throw new StateError('Cannot run a cancelled task.');
+    }
+
+    try {
+      var r = await _run(callback, injection, app, args, named);
+      _results.add(r);
+      return r;
+    } catch(e, st) {
+      _results.addError(e, st);
+      rethrow;
+    }
   }
 
   void _start() {
@@ -237,13 +249,12 @@ _run(Function callback, InjectionRequest injection, Angel app,
         requirement.length >= 2 &&
         requirement[0] is String &&
         requirement[1] is Type) {
-      inject(requirement[1]);
+      if (app.injections.containsKey(requirement[0]))
+        args.add(app.injections[requirement[0]]);
+      else
+        inject(requirement[1]);
     } else if (requirement is Type)
-      args.add(app.container.make(requirement));
-    else {
-      throw new UnimplementedError(
-          'Cannot inject \'$requirement\'. The task scheduler only supports parameters with type annotations.');
-    }
+      args.add(app.injections[requirement] ?? app.container.make(requirement));
   }
 
   if (injection == null) return null;
@@ -251,8 +262,10 @@ _run(Function callback, InjectionRequest injection, Angel app,
   injection.required.skip(args.length).forEach(inject);
   injection.named.forEach((k, v) {
     named.putIfAbsent(new Symbol(k), () {
-      if (v == dynamic || v == Null || v == Object || v == null)
-        throw new UnimplementedError('Cannot inject \'$k\' as type \'$v\'.');
+      if (app.injections.containsKey(k))
+        return app.injections[k];
+      else if (v == dynamic || v == Null || v == Object || v == null)
+        throw new UnsupportedError('Cannot inject \'$k\' as type \'$v\'.');
       return app.container.make(v);
     });
   });
