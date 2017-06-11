@@ -126,14 +126,14 @@ void isolateMain(List args) {
   var app = new Angel.custom(startShared);
   
   // Hook up a task client, then start the server.
-  app.configure(AngelTaskClientPlugin(masterPort)).then((_) async {
+  app.configure(taskClientPlugin(masterPort)).then((_) async {
     var server = await app.startServer(InternetAddress.ANY_IP_V4, 3000);
     print('Instance #$id listening at http://${server.address.address}:${server.port}');
   });
 }
 
 /// A simple plug-in that connects a server instance to the master task scheduler.
-AngelConfigurer AngelTaskClientPlugin(SendPort masterPort) {
+AngelConfigurer taskClientPlugin(SendPort masterPort) {
   return (Angel app) async {
     var client = new AngelTaskClient(masterPort);
     await master.connect(); // Await a connection...
