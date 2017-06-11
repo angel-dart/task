@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
 import 'package:angel_framework/angel_framework.dart';
 import 'package:uuid/uuid.dart';
@@ -10,14 +12,27 @@ import 'task_result_impl.dart';
 /// Schedules and runs tasks within the context of a loaded application.
 class AngelTaskScheduler extends TaskScheduler {
   final Map<String, SendPort> _clients = {};
+  bool _closed = false;
+  final List<Socket> _clientSockets = [];
   bool _started = false;
   final List<_TaskImpl> _tasks = [];
   final Uuid _uuid = new Uuid();
   final Angel app;
   final bool sendReturnValues;
+  final ServerSocket socket;
   final ReceivePort receivePort = new ReceivePort();
 
-  AngelTaskScheduler(this.app, {this.sendReturnValues: false});
+  AngelTaskScheduler(this.app, {this.sendReturnValues: false, this.socket});
+
+  /// Sends an arbitrary message to all connected clients.
+  void broadcast(message) {
+    var msg =
+        new Message(MessageType.BROADCAST, broadcastValue: message).toJson();
+    _clients.values.forEach((s) => s.send(msg));
+    _clientSockets.forEach((s) => s
+      ..write(JSON.encode(msg))
+      ..flush());
+  }
 
   @override
   Task schedule(Duration duration, Function callback, {String name}) {
@@ -29,9 +44,14 @@ class AngelTaskScheduler extends TaskScheduler {
   }
 
   @override
-  Future close() {
+  Future close() async {
+    _closed = true;
     receivePort.close();
-    return Future.wait(_tasks.map((t) => t.cancel()));
+    await Future.wait(_tasks.map((t) => t.cancel()));
+    await Future.wait(_clientSockets.map((s) => s.close()));
+    socket?.close();
+    _clientSockets.clear();
+    _clients.clear();
   }
 
   @override
@@ -52,7 +72,49 @@ class AngelTaskScheduler extends TaskScheduler {
 
   @override
   Future start() {
-    receivePort.listen(handleMessage);
+    receivePort.listen((data) {
+      handleMessage(data, (message) {
+        // Only send the message if there is an associated client.
+        if (message.clientId != null) {
+          var client = _clients[message.clientId];
+          client?.send(message.toJson());
+        }
+      });
+    });
+
+    if (socket != null) {
+      socket.listen((client) {
+        client.listen((buf) async {
+          Message message;
+
+          try {
+            message = Message.parse(JSON.decode(UTF8.decode(buf)));
+            if (message.type == MessageType.RUN_TASK) {
+              var result = await run(
+                  message.taskName,
+                  message.args,
+                  message.named?.keys?.fold<Map<Symbol, dynamic>>({}, (out, k) {
+                    return out..[new Symbol(k)] = message.named[k];
+                  }));
+              client.write(JSON.encode(new Message(MessageType.TASK_COMPLETED,
+                  messageId: message.messageId,
+                  taskResult: new TaskResultImpl(true,
+                          value: sendReturnValues == true ? result : null)
+                      .toJson())));
+            }
+          } catch (e, st) {
+            client.write(JSON.encode(new Message(MessageType.TASK_COMPLETED,
+                messageId: message?.messageId,
+                taskResult: new TaskResultImpl(false,
+                        error: e.toString(), stack: st.toString())
+                    .toJson())));
+          } finally {
+            client.flush();
+          }
+        });
+      });
+    }
+
     return new Future.sync(() {
       for (var task in _tasks.where((t) => !t._closed)) {
         task._start();
@@ -62,10 +124,12 @@ class AngelTaskScheduler extends TaskScheduler {
     });
   }
 
-  handleMessage(Map data) {
+  /// Handles an incoming message. You must provide a way to [send] a response.
+  handleMessage(Map data, void send(Message message)) {
     var message = Message.parse(data);
 
     switch (message.type) {
+      // Only called via isolates
       case MessageType.REQUEST_ID:
         var id = _uuid.v4();
         var client = _clients[id] = message.sendPort;
@@ -73,28 +137,25 @@ class AngelTaskScheduler extends TaskScheduler {
             .send(new Message(MessageType.ASSIGNED_ID, clientId: id).toJson());
         break;
       case MessageType.RUN_TASK:
-        var client = _clients[message.clientId];
+        run(
+            message.taskName,
+            message.args,
+            message.named?.keys?.fold<Map<Symbol, dynamic>>({}, (out, k) {
+              return out..[new Symbol(k)] = message.named[k];
+            })).then((result) {
+          send(new Message(MessageType.TASK_COMPLETED,
+              messageId: message.messageId,
+              taskResult: new TaskResultImpl(true,
+                      value: sendReturnValues == true ? result : null)
+                  .toJson()));
+        }).catchError((e, st) {
+          send(new Message(MessageType.TASK_COMPLETED,
+              messageId: message.messageId,
+              taskResult: new TaskResultImpl(false,
+                      error: e.toString(), stack: st.toString())
+                  .toJson()));
+        });
 
-        if (client != null) {
-          run(
-              message.taskName,
-              message.args,
-              message.named?.keys?.fold<Map<Symbol, dynamic>>({}, (out, k) {
-                return out..[new Symbol(k)] = message.named[k];
-              })).then((result) {
-            client.send(new Message(MessageType.TASK_COMPLETED,
-                messageId: message.messageId,
-                taskResult: new TaskResultImpl(true,
-                        value: sendReturnValues == true ? result : null)
-                    .toJson()));
-          }).catchError((e, st) {
-            client.send(new Message(MessageType.TASK_COMPLETED,
-                messageId: message.messageId,
-                taskResult: new TaskResultImpl(false,
-                        error: e.toString(), stack: st.toString())
-                    .toJson()));
-          });
-        }
         break;
       default:
         break;

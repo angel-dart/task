@@ -1,6 +1,12 @@
 import 'dart:isolate';
 
-enum MessageType { REQUEST_ID, ASSIGNED_ID, RUN_TASK, TASK_COMPLETED }
+enum MessageType {
+  REQUEST_ID,
+  ASSIGNED_ID,
+  RUN_TASK,
+  TASK_COMPLETED,
+  BROADCAST
+}
 
 class Message {
   final MessageType type;
@@ -8,6 +14,7 @@ class Message {
   final List args;
   final Map named, taskResult;
   final SendPort sendPort;
+  final broadcastValue;
 
   Message(this.type,
       {this.clientId,
@@ -16,7 +23,8 @@ class Message {
       this.args,
       this.named,
       this.taskResult,
-      this.sendPort});
+      this.sendPort,
+      this.broadcastValue});
 
   static Message parse(Map map) => new Message(MessageType.values[map['type']],
       clientId: map['client_id'],
@@ -25,7 +33,8 @@ class Message {
       args: map['args'] is List ? map['args'] : null,
       named: map['named'] is Map ? map['named'] : null,
       taskResult: map['task_result'] is Map ? map['task_result'] : null,
-      sendPort: map['send_port']);
+      sendPort: map['send_port'],
+      broadcastValue: map['broadcast_value']);
 
   Map<String, dynamic> toJson() {
     return {
@@ -36,7 +45,8 @@ class Message {
       'args': args,
       'named': named,
       'task_result': taskResult,
-      'send_port': sendPort
+      'send_port': sendPort,
+      'broadcast_value': broadcastValue
     };
   }
 }

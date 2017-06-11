@@ -91,7 +91,7 @@ The child isolates only have to worry about serving your application to the Web.
 
 The `AngelTaskScheduler` has a `receivePort` that it uses to communicate with clients.
 
-To access the scheduler as a client, instantiate a `TaskClient`. The constructor accepts a single
+To access the scheduler as a client, instantiate a `AngelTaskClient`. The constructor accepts a single
 `SendPort`, which in this case comes from the scheduler.
 
 **IMPORTANT:** If you *want* to send the return value of task functions to clients, then set
@@ -125,29 +125,29 @@ void isolateMain(List args) {
   var app = new Angel.custom(startShared);
   
   // Hook up a task client, then start the server.
-  app.configure(taskClientPlugin(masterPort)).then((_) async {
+  app.configure(AngelTaskClientPlugin(masterPort)).then((_) async {
     var server = await app.startServer(InternetAddress.ANY_IP_V4, 3000);
     print('Instance #$id listening at http://${server.address.address}:${server.port}');
   });
 }
 
 /// A simple plug-in that connects a server instance to the master task scheduler.
-AngelConfigurer taskClientPlugin(SendPort masterPort) {
+AngelConfigurer AngelTaskClientPlugin(SendPort masterPort) {
   return (Angel app) async {
-    var client = new TaskClient(masterPort);
+    var client = new AngelTaskClient(masterPort);
     await master.connect(); // Await a connection...
     await master.connect(timeout: new Duration(seconds: 30)); // Optional timeout.
     
-    // If we inject the TaskClient as a singleton, we can access it in routes.
+    // If we inject the AngelTaskClient as a singleton, we can access it in routes.
     app.container.singleton(client);
     
     // We can dispatch tasks, without waiting for the result.
-    app.get('/dispatch', (TaskClient client) {
+    app.get('/dispatch', (AngelTaskClient client) {
       client.run('foo', args: ['bar']);
     });
     
     // We can also await the results of tasks.
-    app.get('/fibonacci/:number([0-9]+)', (TaskClient client, String number) async {
+    app.get('/fibonacci/:number([0-9]+)', (AngelTaskClient client, String number) async {
       var n = int.parse(number);
       var taskResult = await client.run('fibonacci', args: [n]);
       
@@ -167,3 +167,55 @@ AngelConfigurer taskClientPlugin(SendPort masterPort) {
 }
 ```
 
+## Sockets
+Applications of very large scale will likely run on multiple machines; in such a case, mere multi-threading
+will not do the job.
+
+Luckily, `package:angel_task` also supports communication over sockets. This can occur at the same time as
+communication over isolates, so you can use both together in your application.
+
+To bind the scheduler to a socket, you must pass it to the constructor.
+
+```dart
+main() async {
+  var socket = await ServerSocket.bind(InternetAddress.ANY_IP_V4, 5671);
+  var app = await createServer();
+  var scheduler = new AngelTaskScheduler(app, socket: socket);
+  
+  // Task configuration...
+  
+  // Calling `start` will also listen on the socket, if any.
+  await scheduler.start(); 
+}
+```
+
+And then, to connect a client, it's almost the same process:
+```dart
+main() async {
+  var app = await createServer();
+  var client = await AngelTaskClient.connectSocket(InternetAddress.LOOPBACK_IP_V4, 5671);
+ 
+  // You can still inject for DI.
+  //
+  // Just make sure to explicitly pass the right type.
+  app.container.singleton(client, as: AngelTaskClient);
+  
+}
+```
+
+
+## Broadcasting
+If you are multi-threading, there may be times when you want to send an impromptu message
+to all child nodes. Use `AngelTaskScheduler.broadcast` to achieve this.
+
+Whatever you broadcast should be a primitive Dart value; otherwise, it will not be serializable over
+a `SendPort` or `Socket`.
+
+```dart
+main() {
+  // ...
+  scheduler.broadcast({
+    'michael': 'jackson'
+  });
+}
+```
