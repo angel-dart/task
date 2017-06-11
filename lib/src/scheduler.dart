@@ -10,10 +10,13 @@ abstract class TaskScheduler {
   Future close();
 
   /// Runs the task with the given name.
-  dynamic run(String name, List args, [Map<Symbol, dynamic> named]);
+  Future run(String name, List args, [Map<Symbol, dynamic> named]);
 
-  /// Runs the given callback once only.
-  Task once(Function callback, [Duration duration]);
+  /// Registers a callable task, without running or scheduling it.
+  void define(String name, Function callback);
+
+  /// Runs the given callback once only. You can optionally wait for a certain [delay] before running.
+  Task once(Function callback, [Duration delay]);
 
   /// Schedules a callback to run infinitely, recurring at the given duration.
   Task schedule(Duration duration, Function callback, {String name});
