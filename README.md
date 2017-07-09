@@ -1,5 +1,5 @@
 # task
-[![version 1.0.0](https://img.shields.io/badge/pub-1.0.0-brightgreen.svg)](https://pub.dartlang.org/packages/angel_task)
+[![Pub](https://img.shields.io/pub/v/angel_task.svg)](https://pub.dartlang.org/packages/angel_task)
 [![build status](https://travis-ci.org/angel-dart/task.svg)](https://travis-ci.org/angel-dart/task)
 
 Support for running and scheduling asynchronous tasks within Angel.
