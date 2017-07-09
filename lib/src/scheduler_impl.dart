@@ -130,8 +130,8 @@ class AngelTaskScheduler extends TaskScheduler {
   }
 
   /// Handles an incoming message. You must provide a way to [send] a response.
-  handleMessage(Map data, void send(Message message)) {
-    var message = Message.parse(data);
+  handleMessage(data, void send(Message message)) {
+    var message = data is Message ? data : Message.parse(data);
 
     switch (message.type) {
       // Only called via isolates
