@@ -6,7 +6,7 @@ environment:
   sdk: ">=1.19.0"
 homepage: https://github.com/angel-dart/task
 dependencies:
-  angel_common: ^1.0.0
+  angel_framework: ^1.0.0
   uuid: ^0.5.3
 dev_dependencies:
   mock_request: ^1.0.0
