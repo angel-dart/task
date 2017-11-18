@@ -27,9 +27,8 @@ class AngelTaskClient {
 
   AngelTaskClient(this.server);
 
-  /// Connects a task client to a TCP socket at [host]:[port].
-  static Future<AngelTaskClient> connectSocket(host, int port) async {
-    var socket = await Socket.connect(host, port);
+  /// Connects a task client to a TCP socket.
+  static Future<AngelTaskClient> fromSocket(Socket socket) async {
     return new _SocketTaskClientImpl(socket).._listen();
   }
 
@@ -98,7 +97,7 @@ class AngelTaskClient {
   ///
   /// Provide a [timeout] if you expect the response to complete within a certain amount of time.
   Future<TaskResult> run(String name,
-      {List args, Map<String, dynamic> named, Duration timeout}) {
+      {List args, Map<String, dynamic> named, @deprecated Duration timeout}) {
     var c = new Completer<TaskResult>();
     var id = _uuid.v4();
     Timer timer;
@@ -112,15 +111,6 @@ class AngelTaskClient {
       timer?.cancel();
       if (!c.isCompleted) c.complete(TaskResultImpl.parse(message.taskResult));
     }).catchError(c.completeError);
-
-    if (timeout != null) {
-      timer = new Timer(timeout, () {
-        if (!c.isCompleted)
-          c.completeError(new TimeoutException(
-              'Remote task run exceeded timeout of ${timeout.inMilliseconds}ms.',
-              timeout));
-      });
-    }
 
     return c.future;
   }
@@ -139,6 +129,12 @@ class _SocketTaskClientImpl extends AngelTaskClient {
 
   @override
   Future connect({timeout}) => new Future.value(null);
+
+  @override
+  _sendToServer(Message message) {
+    socket.write(JSON.encode(message.toJson()));
+    socket.flush();
+  }
 
   void _listen() {
     socket.listen((buf) {
